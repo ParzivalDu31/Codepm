@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scratch Player</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Scratch">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#4d97ff">
+<style>
+:root{--bg:#f4f6fb;--fg:#1d2433;--card:#fff;--line:#dfe4ee;--blue:#4d97ff}
+@media(prefers-color-scheme:dark){:root{--bg:#12151c;--fg:#e8ecf5;--card:#1b2030;--line:#2b3347}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--fg);font:16px -apple-system,system-ui,sans-serif;-webkit-user-select:none;user-select:none}
+body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+main{max-width:720px;margin:0 auto;padding:14px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+h1{font-size:20px;margin:0}
+#net{font-size:12px;padding:4px 10px;border-radius:99px;background:#2ecc71;color:#fff}
+#net.off{background:#e67e22}
+#stageWrap{background:#000;border-radius:12px;overflow:hidden;aspect-ratio:4/3;width:100%;touch-action:none}
+#stageWrap:fullscreen{border-radius:0;aspect-ratio:auto;display:flex;align-items:center;justify-content:center}
+#stage{width:100%;height:100%;display:block}
+#stageWrap:fullscreen #stage{width:min(100vw,133.33vh);height:min(100vh,75vw)}
+.bar{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
+button,label.btn{border:0;border-radius:10px;padding:11px 16px;font:600 15px inherit;background:var(--blue);color:#fff;cursor:pointer}
+button.sec{background:var(--card);color:var(--fg);border:1px solid var(--line)}
+button.on{background:#ff8c1a;color:#fff}
+input[type=file]{display:none}
+#status{font-size:14px;min-height:20px;opacity:.8;margin:4px 0 10px}
+#pad{display:none;gap:8px;justify-content:space-between;margin:6px 0}
+@media(hover:none){#pad{display:flex}}
+#pad div{display:flex;gap:6px}
+#pad button{min-width:52px;padding:14px 0;background:var(--card);color:var(--fg);border:1px solid var(--line)}
+h2{font-size:15px;margin:18px 0 8px}
+#list{display:flex;flex-direction:column;gap:6px}
+.item{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.item span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item button{padding:7px 12px;font-size:14px}
+.empty{opacity:.6;font-size:14px}
+</style>
+</head>
+<body>
+<main>
+  <header><h1>Scratch Player</h1><span id="net">En ligne</span></header>
+  <div id="stageWrap"><canvas id="stage"></canvas></div>
+  <div class="bar">
+    <button id="flag">⚑ Lancer</button>
+    <button id="stop" class="sec">■ Stop</button>
+    <button id="turbo" class="sec">Turbo</button>
+    <button id="full" class="sec">Plein écran</button>
+  </div>
+  <div class="bar">
+    <label class="btn">📂 Ouvrir un fichier Scratch<input id="file" type="file"></label>
+  </div>
+  <div id="status">Choisis un fichier .sb3 (ou .sb2) pour le lancer.</div>
+  <div id="pad">
+    <div><button data-k="ArrowLeft">◀</button><button data-k="ArrowUp">▲</button><button data-k="ArrowDown">▼</button><button data-k="ArrowRight">▶</button></div>
+    <div><button data-k=" ">Espace</button></div>
+  </div>
+  <h2>Mes projets (sauvegardés sur cet appareil, dispo hors ligne)</h2>
+  <div id="list"></div>
+</main>
+
+<script src="/vendor/scratch-vm.js"></script>
+<script src="/vendor/scratch-render.js"></script>
+<script src="/vendor/scratch-audio.js"></script>
+<script src="/vendor/scratch-storage.js"></script>
+<script src="/vendor/scratch-svg-renderer.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const status = t => $('status').textContent = t;
+
+// ---------- Moteur Scratch ----------
+const canvas = $('stage');
+const vm = new VirtualMachine();
+const renderer = new ScratchRender(canvas);
+const audio = new AudioEngine();
+const storage = new ScratchStorage();
+vm.attachStorage(storage);
+vm.attachRenderer(renderer);
+vm.attachAudioEngine(audio);
+vm.attachV2SVGAdapter(new ScratchSVGRenderer.SVGRenderer());
+vm.attachV2BitmapAdapter(new ScratchSVGRenderer.BitmapAdapter());
+vm.setCompatibilityMode(true);
+vm.start();
+
+function fit() {
+  const r = $('stageWrap').getBoundingClientRect(), s = Math.min(devicePixelRatio || 1, 2);
+  const w = Math.min(r.width, (r.height || r.width * .75) * 4 / 3);
+  renderer.resize(Math.round(w * s), Math.round(w * .75 * s));
+}
+addEventListener('resize', fit); document.addEventListener('fullscreenchange', () => setTimeout(fit, 100)); fit();
+
+// ---------- Souris / tactile / clavier ----------
+function mouse(e, down) {
+  const r = canvas.getBoundingClientRect(), p = e.touches ? (e.touches[0] || e.changedTouches[0]) : e;
+  const d = { x: p.clientX - r.left, y: p.clientY - r.top, canvasWidth: r.width, canvasHeight: r.height };
+  if (down !== undefined) d.isDown = down;
+  vm.postIOData('mouse', d);
+}
+canvas.addEventListener('pointerdown', e => { mouse(e, true); canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => mouse(e));
+canvas.addEventListener('pointerup', e => mouse(e, false));
+addEventListener('keydown', e => { if (e.target.tagName !== 'INPUT') { vm.postIOData('keyboard', { key: e.key, isDown: true }); if (e.key.startsWith('Arrow') || e.key === ' ') e.preventDefault(); } });
+addEventListener('keyup', e => vm.postIOData('keyboard', { key: e.key, isDown: false }));
+document.querySelectorAll('#pad button').forEach(b => {
+  const k = b.dataset.k, f = d => e => { e.preventDefault(); vm.postIOData('keyboard', { key: k, isDown: d }); };
+  b.addEventListener('pointerdown', f(true)); b.addEventListener('pointerup', f(false)); b.addEventListener('pointerleave', f(false));
+});
+
+// ---------- Boutons ----------
+$('flag').onclick = () => { audio.audioContext && audio.audioContext.resume(); vm.greenFlag(); };
+$('stop').onclick = () => vm.stopAll();
+$('turbo').onclick = e => { const on = !vm.runtime.turboMode; vm.setTurboMode(on); e.target.classList.toggle('on', on); };
+$('full').onclick = () => { const w = $('stageWrap'); (w.requestFullscreen || w.webkitRequestFullscreen || (() => status('Plein écran non supporté sur cet appareil.'))).call(w); };
+
+async function runBuffer(buf, name) {
+  try {
+    audio.audioContext && audio.audioContext.resume();
+    vm.stopAll(); status('Chargement de ' + name + '…');
+    await vm.loadProject(buf);
+    fit(); vm.greenFlag(); status('▶ ' + name);
+    return true;
+  } catch (err) { console.error(err); status('Impossible de lire ce fichier : ' + (err.message || err)); return false; }
+}
+
+// ---------- Bibliothèque locale (IndexedDB) ----------
+const db = new Promise((res, rej) => {
+  const q = indexedDB.open('scratch-player', 1);
+  q.onupgradeneeded = () => q.result.createObjectStore('p', { keyPath: 'name' });
+  q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error);
+});
+const tx = async (mode, fn) => { const d = await db; return new Promise((res, rej) => { const t = d.transaction('p', mode), r = fn(t.objectStore('p')); t.oncomplete = () => res(r.result); t.onerror = () => rej(t.error); }); };
+async function refresh() {
+  const items = (await tx('readonly', s => s.getAll())) || [], box = $('list'); box.innerHTML = '';
+  if (!items.length) { box.innerHTML = '<div class="empty">Aucun projet pour l’instant.</div>'; return; }
+  items.sort((a, b) => b.date - a.date).forEach(it => {
+    const row = document.createElement('div'); row.className = 'item';
+    const n = document.createElement('span'); n.textContent = it.name;
+    const go = document.createElement('button'); go.textContent = 'Lancer'; go.onclick = () => runBuffer(it.data.slice(0), it.name);
+    const del = document.createElement('button'); del.className = 'sec'; del.textContent = '✕';
+    del.onclick = async () => { await tx('readwrite', s => s.delete(it.name)); refresh(); };
+    row.append(n, go, del); box.append(row);
+  });
+}
+$('file').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const buf = await f.arrayBuffer();
+  if (await runBuffer(buf.slice(0), f.name)) {
+    try { await tx('readwrite', s => s.put({ name: f.name, data: buf, date: Date.now() })); refresh(); } catch (_) {}
+  }
+  e.target.value = '';
+};
+refresh();
+
+// ---------- En ligne / hors ligne + Service Worker ----------
+const net = () => { $('net').textContent = navigator.onLine ? 'En ligne' : 'Hors ligne'; $('net').className = navigator.onLine ? '' : 'off'; };
+addEventListener('online', net); addEventListener('offline', net); net();
+async function offlineReady() {
+  const need = ['/index.html', '/vendor/scratch-vm.js', '/vendor/scratch-render.js', '/vendor/scratch-audio.js', '/vendor/scratch-storage.js', '/vendor/scratch-svg-renderer.js'];
+  for (const u of need) if (!(await caches.match(u))) return false;
+  return true;
+}
+async function checkOffline(tries) {
+  const ok = await offlineReady();
+  if (ok) { if (!$('status').textContent.startsWith('▶')) status('Prêt, disponible hors ligne ✔'); return; }
+  if (tries > 0) return setTimeout(() => checkOffline(tries - 1), 2000);
+  status('⚠ Pas encore prêt hors ligne : reste en wifi, ferme puis rouvre l’app depuis l’écran d’accueil.');
+}
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').then(() => navigator.serviceWorker.ready).then(() => checkOffline(15))
+    .catch(err => status('⚠ Mode hors ligne indisponible : ' + err.message));
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+} else { status('⚠ Ce navigateur ne supporte pas le mode hors ligne.'); }
+</script>
+</body>
+</html>
