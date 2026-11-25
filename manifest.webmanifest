@@ -1,0 +1,14 @@
+{
+  "name": "Scratch Player",
+  "short_name": "Scratch",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#4d97ff",
+  "theme_color": "#4d97ff",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
